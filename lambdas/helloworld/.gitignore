@@ -1,0 +1,4 @@
+*.zip
+coverage.*
+main
+bootstrap
