@@ -21,6 +21,7 @@ var awsRegion = flag.String("region", "us-east-1", "The target AWS region for th
 var appName = flag.String("app-name", "", "Microservices cluster application name (e.g. example-service, hello-world)")
 var environment = flag.String("environment", "", "Target environment = prod, nonprod, preprod, staging, dev, test, etc")
 var lambdasToBuildAndTest = flag.String("lambda", "all", "Which Lambda functions to test and/or build: <name-of-lambda> or all")
+var buildLambdasInDirectory = flag.String("lambdas-dir", "lambdas", "Build all Lambdas in the specified directory")
 var stage = flag.String("stage", "", "Deployment stage: unit-test, build, int-test, init, plan, apply, destroy")
 var opConfirmed = flag.Bool("confirm", false, "For destructive operations this should be set to true rather than false")
 
@@ -201,10 +202,6 @@ func displayTerraformOutputs(tf *tfexec.Terraform) {
 	}
 }
 
-func buildLambda(lambdaName string) {
-	buildTarget(lambdaName)
-}
-
 func runUnitTestsFor(lambdas []string) {
 	for _, lambda := range lambdas {
 		log.Printf("running tests for %s Lambda...\n", lambda)
@@ -223,7 +220,7 @@ func build(lambdas []string) {
 
 func lambdaServicesInLambdasDirectory() []string {
 	var lambdas []string
-	servicesInLambdasDirectory, err := os.ReadDir("lambdas")
+	servicesInLambdasDirectory, err := os.ReadDir(*buildLambdasInDirectory)
 	if err != nil {
 		fmt.Println("Error:", err)
 		return nil
@@ -248,12 +245,6 @@ func runIntegrationTestsFor(lambdas []string) {
 		stdout := runCmdIn(fmt.Sprintf("lambdas/%s", lambda), "make", "int-test")
 		fmt.Println("integration tests passed; stdout = ", stdout)
 	}
-}
-
-func buildTarget(lambdaName string) {
-	log.Printf("building %s Lambda...\n", lambdaName)
-	stdout := runCmdIn(fmt.Sprintf("lambdas/%s", lambdaName), "make", "target")
-	fmt.Println("build succeeded; stdout = ", stdout)
 }
 
 func runCmdIn(dir string, command string, args ...string) string {
