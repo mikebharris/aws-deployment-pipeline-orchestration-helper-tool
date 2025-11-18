@@ -8,16 +8,22 @@ go run pipeline.go --help
 Usage of pipeline:
   -account-number uint
     	Account number of AWS deployment target
+  -app-name string
+    	Microservices cluster application name (e.g. example-service, hello-world)
   -confirm
     	For destructive operations this should be set to true rather than false
   -environment string
-    	Target environment = prod, nonprod, etc (default "nonprod")
+    	Target environment = prod, nonprod, preprod, staging, dev, test, etc
   -lambda string
     	Which Lambda functions to test and/or build: <name-of-lambda> or all (default "all")
+  -lambdas-dir string
+    	Overrides default directory holding Lambda functions to build and test (default "lambdas")
   -region string
-    	The target AWS region for the deployment (default "us-east-1")
+    	The target AWS region for the deployment
   -stage string
     	Deployment stage: unit-test, build, int-test, init, plan, apply, destroy
+  -tf-state-bucket string
+    	Overrides default S3 bucket to use for Terraform remote state storage (optional)
 ```
 
 The _--stage_ parameter allows you to control each distinct stage of a pipeline deployment process, locally on your development machine, or in each stage of the pipeline:
