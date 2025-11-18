@@ -17,7 +17,7 @@ import (
 )
 
 var awsAccountNumber = flag.Uint("account-number", 0, "Account number of AWS deployment target")
-var awsRegion = flag.String("region", "us-east-1", "The target AWS region for the deployment")
+var awsRegion = flag.String("region", "", "The target AWS region for the deployment")
 var appName = flag.String("app-name", "", "Microservices cluster application name (e.g. example-service, hello-world)")
 var environment = flag.String("environment", "", "Target environment = prod, nonprod, preprod, staging, dev, test, etc")
 var lambdasToBuildAndTest = flag.String("lambda", "all", "Which Lambda functions to test and/or build: <name-of-lambda> or all")
