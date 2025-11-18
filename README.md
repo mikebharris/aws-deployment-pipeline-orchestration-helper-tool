@@ -78,6 +78,11 @@ Optionally you can build just a single Lambda by using the _--lambda__ flag on t
 go run pipeline.go --stage=build --lambda=helloworld
 ```
 
+Optionally you can also build Lambdas that are in another directory entirely by using the _--lambdas-dir__ flag on the command line:
+```shell
+go run pipeline.go --stage=build --lambdas-dir=functions
+```
+
 #### int-test
 
 This runs all the integration tests for all the Lambdas:
@@ -94,14 +99,14 @@ go run pipeline.go --stage=int-test --lambda=helloworld
 
 Run Terraform init:
 ```shell
-AWS_ACCESS_KEY_ID=XXXX AWS_SECRET_ACCESS_KEY=YYYY go run pipeline.go --stage=init --account-number=123456789012 --environment=nonprod --region=eu-west-1
+AWS_ACCESS_KEY_ID=XXXX AWS_SECRET_ACCESS_KEY=YYYY go run pipeline.go --region=eu-west-1 --account-number=123456789012 --environment=nonprod --app-name=myawsappname --stage=init 
 ```
 
 #### plan
 
 Run Terraform plan:
 ```shell
-AWS_ACCESS_KEY_ID=XXXX AWS_SECRET_ACCESS_KEY=YYYY go run pipeline.go --stage=plan --app-name=myawsappname --account-number=123456789012 --environment=nonprod 
+AWS_ACCESS_KEY_ID=XXXX AWS_SECRET_ACCESS_KEY=YYYY go run pipeline.go --app-name=myawsappname --account-number=123456789012 --environment=nonprod --stage=plan 
 ```
 
 In the above and subsequent, I suggest ''--app-name'' is used to specify the name of your application representing the collection of AWS services that comprise an atomic project/product.
@@ -110,14 +115,14 @@ In the above and subsequent, I suggest ''--app-name'' is used to specify the nam
 
 Run Terraform apply:
 ```shell
-AWS_ACCESS_KEY_ID=XXXX AWS_SECRET_ACCESS_KEY=YYYY go run pipeline.go --stage=apply --account-number=123456789012 --environment=nonprod --confirm=true
+AWS_ACCESS_KEY_ID=XXXX AWS_SECRET_ACCESS_KEY=YYYY go run pipeline.go --app-name=myawsappname --account-number=123456789012 --environment=nonprod --stage=apply --confirm=true
 ```
 
 #### destroy
 
 Run Terraform destroy:
 ```shell
-AWS_ACCESS_KEY_ID=XXXX AWS_SECRET_ACCESS_KEY=YYYY go run pipeline.go --stage=destroy --account-number=123456789012 --environment=nonprod --confirm=true
+AWS_ACCESS_KEY_ID=XXXX AWS_SECRET_ACCESS_KEY=YYYY go run pipeline.go --account-number=123456789012 --app-name=myawsappname --environment=nonprod --stage=destroy --confirm=true
 ```
 
 ### FAQ
