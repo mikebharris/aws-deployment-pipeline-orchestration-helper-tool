@@ -36,11 +36,13 @@ The following operations require AWS credentials to be set in the environment to
 
 ## Prerequisites
 
-An S3 bucket must exist to hold the Terraform state files.  Create this bucket before running the init stage.  The bucket name must be in the format:
+To run the commands to deploy to AWS, an S3 bucket must exist to hold the Terraform state files.  Create this bucket before running the init stage.  The bucket name must be in the format:
 
 ```
 <account-number>-<region>-<environment>-terraform-deployments
 ```
+
+You can override this default bucket name for remote state by using the --tf-state-bucket command line parameter in the init stage.
 
 ### Running the Go pipeline deployment helper program
 
