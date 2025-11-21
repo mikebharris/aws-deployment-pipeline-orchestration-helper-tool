@@ -2,6 +2,25 @@
 
 This directory contains a simple "Hello World" AWS Lambda function written in Go.  It only serves to demonstrate the structure of a Lambda function project that can be deployed using the accompanying AWS deployment tool.
 
+Once deployed, you will be presented with the URL as an output from the Terraform.    For example:
+
+
+```json
+{
+  "endpoint_url": {
+    "sensitive": false,
+    "type": "string",
+    "value": "https://uarvijxd3rbi5vzzfevubhh2di0xfuqz.lambda-url.us-east-1.on.aws/"
+  }
+}
+```
+
+Visiting this URL will yield the not very informative, yet friendly output in JSON:
+
+```json
+{"message":"Hello World!"}
+```
+
 ## Building
 
 To build the Lambdas, change to the service in the _lambdas_ directory and type:
