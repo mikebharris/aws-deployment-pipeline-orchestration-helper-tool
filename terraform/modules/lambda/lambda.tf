@@ -1,4 +1,4 @@
-resource "aws_iam_role" "attendees_api_iam_role" {
+resource "aws_iam_role" "hello_world_iam_role" {
   name                  = "${var.product}-${var.environment}-hello-world-iam-role"
   force_detach_policies = true
   assume_role_policy = jsonencode({
@@ -22,7 +22,7 @@ resource "aws_cloudwatch_log_group" "cloudwatch_log_group" {
 }
 
 resource "aws_iam_role_policy_attachment" "hello_world_policy_attachment_execution" {
-  role       = aws_iam_role.attendees_api_iam_role.name
+  role       = aws_iam_role.hello_world_iam_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
@@ -41,7 +41,7 @@ resource "aws_s3_object" "hello_world_lambda_function_distribution_bucket_object
 
 resource "aws_lambda_function" "hello_world_lambda_function" {
   function_name    = "${var.environment}-${var.product}-hello-world"
-  role             = aws_iam_role.attendees_api_iam_role.arn
+  role             = aws_iam_role.hello_world_iam_role.arn
   handler          = "bootstrap"
   runtime          = "provided.al2023"
   architectures    = ["arm64"]
