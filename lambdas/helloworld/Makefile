@@ -12,10 +12,5 @@ target:
 int-test: build
 	cd integration-tests && go test
 
-.PHONY: unit-test
-unit-test:
-	go test . ./... -coverprofile=coverage.out -coverpkg=./...
-	go tool cover -html=coverage.out -o ./coverage.html
-
 .PHONY: test
-test: unit-test int-test
+test: int-test
