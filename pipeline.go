@@ -21,25 +21,42 @@ var awsRegion = flag.String("region", "", "The target AWS region for the deploym
 var appName = flag.String("app-name", "", "Microservices cluster application name (e.g. example-service, hello-world)")
 var environment = flag.String("environment", "", "Target environment = prod, nonprod, preprod, staging, dev, test, etc")
 var tfStateBucket = flag.String("tf-state-bucket", "", "Overrides default S3 bucket to use for Terraform remote state storage (optional)")
-var lambdasToBuildAndTest = flag.String("lambda", "all", "Which Lambda functions to test and/or build: <name-of-lambda> or all")
-var buildLambdasInDirectory = flag.String("lambdas-dir", "lambdas", "Overrides default directory holding Lambda functions to build and test")
+var specificLambda = flag.String("lambda", "", "Build and test a specific Lambda function rather than all: <name-of-lambda>")
+var lambdasDirectory = flag.String("lambdas-dir", "lambdas", "Overrides default directory holding Lambda functions to build and test")
+var lambdaCommonCodeDirectory = flag.String("lambda-common-code-dir", "common", "Overrides default directory holding common code shared between Lambda functions")
+var tfWorkingDir = flag.String("tf-working-dir", "terraform", "Overrides default Terraform working directory")
+var tfVersion = flag.String("tf-version", "1.14", "Version of Terraform to use")
 var stage = flag.String("stage", "", "Deployment stage: unit-test, build, int-test, init, plan, apply, destroy")
 var opConfirmed = flag.Bool("confirm", false, "For destructive operations this should be set to true rather than false")
-
-var lambdas []string
 
 func main() {
 	flag.Parse()
 
-	lambdas = getListOfLambdaFunctions()
+	var lambdas []string
+	if *stage == "unit-test" || *stage == "build" || *stage == "int-test" {
+		if *specificLambda == "" {
+			var err error
+			if lambdas, err = listDirectoriesInDirectory(*lambdasDirectory, *lambdaCommonCodeDirectory); err != nil {
+				fmt.Println(fmt.Errorf("error listing lambdas in %s: %s", *lambdasDirectory, err))
+				os.Exit(1)
+			}
+			if len(lambdas) == 0 {
+				fmt.Println(fmt.Errorf("no lambdas found in %s", *lambdasDirectory))
+				os.Exit(1)
+			}
+		} else {
+			lambdas = append(lambdas, *specificLambda)
+		}
+	}
 
+	var err error
 	switch *stage {
 	case "unit-test":
-		runUnitTestsFor(lambdas)
+		err = runUnitTestsFor(lambdas)
 	case "build":
-		build(lambdas)
+		err = build(lambdas)
 	case "int-test":
-		runIntegrationTestsFor(lambdas)
+		err = runIntegrationTestsFor(lambdas)
 	case "init":
 		fallthrough
 	case "plan":
@@ -48,24 +65,38 @@ func main() {
 		fallthrough
 	case "destroy":
 		if *appName == "" {
-			log.Fatalf("error: --app-name is required to perform Terraform operations")
+			fmt.Println(fmt.Errorf("error: --app-name is required to perform Terraform operations"))
+			os.Exit(1)
 		}
-		runTerraformCommandForRegion(*stage)
+		if *environment == "" {
+			fmt.Println(fmt.Errorf("error: --environment is required to perform Terraform operations"))
+			os.Exit(1)
+		}
+		if *awsAccountNumber == 0 {
+			fmt.Println(fmt.Errorf("error: --account-number is required to perform Terraform operations"))
+			os.Exit(1)
+		}
+		if *awsRegion == "" {
+			fmt.Println(fmt.Errorf("error: --region is required to perform Terraform operations"))
+			os.Exit(1)
+		}
+		err = runTerraformCommandForRegion(*stage, *awsRegion, *tfWorkingDir, *tfVersion, *environment, *appName)
+	default:
+		fmt.Printf("Bad stage: --stage should be one of unit-test, build, int-test, init, plan, apply, or destroy")
+		os.Exit(1)
+	}
+
+	if err != nil {
+		fmt.Println(fmt.Errorf("error running stage %s: %s", *stage, err))
+		os.Exit(1)
 	}
 }
 
-func getListOfLambdaFunctions() []string {
-	var lambdas []string
-	if *lambdasToBuildAndTest != "all" {
-		lambdas = append(lambdas, *lambdasToBuildAndTest)
-	} else {
-		lambdas = lambdaServicesInLambdasDirectory()
+func runTerraformCommandForRegion(operation string, region string, tfWorkingDir string, tfVersion string, environment string, appName string) error {
+	tf, err := setupTerraformExec(context.Background(), tfWorkingDir, tfVersion)
+	if err != nil {
+		return err
 	}
-	return lambdas
-}
-
-func runTerraformCommandForRegion(tfOp string) {
-	tf := setupTerraformExec(context.Background())
 
 	var stdout bytes.Buffer
 	tf.SetStdout(&stdout)
@@ -74,74 +105,77 @@ func runTerraformCommandForRegion(tfOp string) {
 	tf.SetLogger(log.New(&tfLog, "log: ", log.LstdFlags))
 
 	var tfWorkingBucket string
-	if tfStateBucket != nil && *tfStateBucket != "" {
+	if *tfStateBucket != "" {
 		tfWorkingBucket = *tfStateBucket
 	} else {
 		tfWorkingBucket = fmt.Sprintf("%d-%s-terraform-deployments", *awsAccountNumber, *awsRegion)
 	}
 	log.Println("using tf state bucket ", tfWorkingBucket)
 
-	switch tfOp {
+	switch operation {
 	case "init":
-		terraformInit(tf, tfWorkingBucket, *awsRegion)
+		err = terraformInit(tf, tfWorkingBucket, region, environment, appName)
 	case "plan":
-		terraformPlan(tf, tfWorkingBucket, *awsAccountNumber, *awsRegion, *environment, false)
+		err = terraformPlan(tf, tfWorkingBucket, region, environment, appName, false)
 	case "apply":
 		if *opConfirmed {
-			terraformApply(tf, tfWorkingBucket, *awsAccountNumber, *awsRegion, *environment)
+			err = terraformApply(tf, tfWorkingBucket, region, environment, appName)
 		} else {
 			log.Println("destructive apply not confirmed running plan instead...")
-			terraformPlan(tf, tfWorkingBucket, *awsAccountNumber, *awsRegion, *environment, false)
+			err = terraformPlan(tf, tfWorkingBucket, region, environment, appName, false)
 		}
 	case "destroy":
 		if *opConfirmed {
-			terraformDestroy(tf, tfWorkingBucket, *awsAccountNumber, *awsRegion, *environment)
+			err = terraformDestroy(tf, tfWorkingBucket, region, environment, appName)
 		} else {
 			log.Println("destructive destroy not confirmed running plan destroy instead...")
-			terraformPlan(tf, tfWorkingBucket, *awsAccountNumber, *awsRegion, *environment, true)
+			err = terraformPlan(tf, tfWorkingBucket, region, environment, appName, true)
 		}
-	case "skip":
-	default:
-		log.Fatalf("Bad operation: --tfop should be one of init, plan, apply, skip, or destroy")
+	}
+
+	if err != nil {
+		return fmt.Errorf("error during terraform %s: %s", operation, err)
 	}
 
 	fmt.Println("\nterraform log: \n******************\n", tfLog.String())
 	fmt.Println("\nterraform stdout: \n******************\n", stdout.String())
+
+	return nil
 }
 
-func setupTerraformExec(ctx context.Context) *tfexec.Terraform {
+func setupTerraformExec(ctx context.Context, workingDir string, tfVersion string) (*tfexec.Terraform, error) {
 	log.Println("installing Terraform...")
 	installer := &releases.ExactVersion{
 		Product: product.Terraform,
-		Version: version.Must(version.NewVersion("1.6")),
+		Version: version.Must(version.NewVersion(tfVersion)),
 	}
 
 	execPath, err := installer.Install(ctx)
 	if err != nil {
-		log.Fatalf("error installing Terraform: %s", err)
+		return nil, fmt.Errorf("error installing Terraform: %s", err)
 	}
 
-	workingDir := "terraform"
 	tf, err := tfexec.NewTerraform(workingDir, execPath)
 	if err != nil {
-		log.Fatalf("error running NewTerraform: %s", err)
+		return nil, fmt.Errorf("error running NewTerraform: %s", err)
 	}
-	return tf
+	return tf, nil
 }
 
-func terraformInit(tf *tfexec.Terraform, tfWorkingBucket string, awsRegion string) {
-	remoteStateFile := fmt.Sprintf("tfstate/%s/%s.json", *environment, *appName)
+func terraformInit(tf *tfexec.Terraform, tfWorkingBucket string, region string, environment string, appName string) error {
+	remoteStateFile := fmt.Sprintf("tfstate/%s/%s.json", environment, appName)
 	log.Println("initialising Terraform using remote state file ", remoteStateFile, " ...")
 	if err := tf.Init(context.Background(),
 		tfexec.Upgrade(true),
 		tfexec.BackendConfig(fmt.Sprintf("key=%s", remoteStateFile)),
 		tfexec.BackendConfig(fmt.Sprintf("bucket=%s", tfWorkingBucket)),
-		tfexec.BackendConfig(fmt.Sprintf("region=%s", awsRegion))); err != nil {
-		log.Fatalf("error running Init: %s", err)
+		tfexec.BackendConfig(fmt.Sprintf("region=%s", region))); err != nil {
+		return fmt.Errorf("error running Init: %s", err)
 	}
+	return nil
 }
 
-func terraformPlan(tf *tfexec.Terraform, tfWorkingBucket string, awsAccountNumber uint, awsRegion string, environment string, destroyFlag bool) {
+func terraformPlan(tf *tfexec.Terraform, tfWorkingBucket string, awsRegion string, environment string, appName string, destroyFlag bool) error {
 	if destroyFlag {
 		log.Println("planning Terraform destroy...")
 	} else {
@@ -151,53 +185,51 @@ func terraformPlan(tf *tfexec.Terraform, tfWorkingBucket string, awsAccountNumbe
 		tfexec.Refresh(true),
 		tfexec.Destroy(destroyFlag),
 		tfexec.Var(fmt.Sprintf("distribution_bucket=%s", tfWorkingBucket)),
-		tfexec.Var(fmt.Sprintf("account_number=%d", awsAccountNumber)),
 		tfexec.Var(fmt.Sprintf("region=%s", awsRegion)),
 		tfexec.Var(fmt.Sprintf("environment=%s", environment)),
-		tfexec.Var(fmt.Sprintf("product=%s", *appName)),
+		tfexec.Var(fmt.Sprintf("product=%s", appName)),
 		tfexec.VarFile(fmt.Sprintf("environments/%s.tfvars", environment)),
 	)
 	if err != nil {
-		log.Fatalf("error running Plan: %s", err)
+		return fmt.Errorf("error running Plan: %s", err)
 	}
+	return nil
 }
 
-func terraformApply(tf *tfexec.Terraform, tfWorkingBucket string, awsAccountNumber uint, awsRegion string, environment string) {
+func terraformApply(tf *tfexec.Terraform, tfWorkingBucket string, awsRegion string, environment string, appName string) error {
 	log.Println("applying Terraform...")
 	if err := tf.Apply(context.Background(),
 		tfexec.Refresh(true),
 		tfexec.Var(fmt.Sprintf("distribution_bucket=%s", tfWorkingBucket)),
-		tfexec.Var(fmt.Sprintf("account_number=%d", awsAccountNumber)),
 		tfexec.Var(fmt.Sprintf("region=%s", awsRegion)),
 		tfexec.Var(fmt.Sprintf("environment=%s", environment)),
-		tfexec.Var(fmt.Sprintf("product=%s", *appName)),
+		tfexec.Var(fmt.Sprintf("product=%s", appName)),
 		tfexec.VarFile(fmt.Sprintf("environments/%s.tfvars", environment)),
 	); err != nil {
-		log.Fatalf("error running Apply: %s", err)
+		return fmt.Errorf("error running Apply: %s", err)
 	}
-	displayTerraformOutputs(tf)
+	return displayTerraformOutputs(tf)
 }
 
-func terraformDestroy(tf *tfexec.Terraform, tfWorkingBucket string, awsAccountNumber uint, awsRegion string, environment string) {
+func terraformDestroy(tf *tfexec.Terraform, tfWorkingBucket string, awsRegion string, environment string, appName string) error {
 	log.Println("destroying all the things...")
 	if err := tf.Destroy(context.Background(),
 		tfexec.Refresh(true),
 		tfexec.Var(fmt.Sprintf("distribution_bucket=%s", tfWorkingBucket)),
-		tfexec.Var(fmt.Sprintf("account_number=%d", awsAccountNumber)),
 		tfexec.Var(fmt.Sprintf("region=%s", awsRegion)),
 		tfexec.Var(fmt.Sprintf("environment=%s", environment)),
-		tfexec.Var(fmt.Sprintf("product=%s", *appName)),
+		tfexec.Var(fmt.Sprintf("product=%s", appName)),
 		tfexec.VarFile(fmt.Sprintf("environments/%s.tfvars", environment)),
 	); err != nil {
-		log.Fatalf("error running Destroy: %s", err)
+		return fmt.Errorf("error running Destroy: %s", err)
 	}
-	displayTerraformOutputs(tf)
+	return displayTerraformOutputs(tf)
 }
 
-func displayTerraformOutputs(tf *tfexec.Terraform) {
+func displayTerraformOutputs(tf *tfexec.Terraform) error {
 	outputs, err := tf.Output(context.Background())
 	if err != nil {
-		log.Fatalf("Error outputting outputs: %v", err)
+		return fmt.Errorf("error outputting outputs: %v", err)
 	}
 	if len(outputs) > 0 {
 		fmt.Println("Terraform outputs:")
@@ -208,60 +240,71 @@ func displayTerraformOutputs(tf *tfexec.Terraform) {
 		}
 		fmt.Println(fmt.Sprintf("%s = %s\n", key, string(outputs[key].Value)))
 	}
+	return nil
 }
 
-func runUnitTestsFor(lambdas []string) {
+func runUnitTestsFor(lambdas []string) error {
 	for _, lambda := range lambdas {
 		log.Printf("running tests for %s Lambda...\n", lambda)
-		stdout := runCmdIn(fmt.Sprintf("lambdas/%s", lambda), "make", "unit-test")
+		stdout, err := runCmdIn(fmt.Sprintf("lambdas/%s", lambda), "make", "unit-test")
+		if err != nil {
+			return fmt.Errorf("building lambda %s: %s", lambda, err)
+		}
 		fmt.Println("unit tests passed; stdout = ", stdout)
 	}
+	return nil
 }
 
-func build(lambdas []string) {
+func build(lambdas []string) error {
 	for _, lambda := range lambdas {
 		log.Printf("building %s Lambda...\n", lambda)
-		stdout := runCmdIn(fmt.Sprintf("lambdas/%s", lambda), "make", "target")
+		stdout, err := runCmdIn(fmt.Sprintf("lambdas/%s", lambda), "make", "target")
+		if err != nil {
+			return fmt.Errorf("building lambda %s: %s", lambda, err)
+		}
 		fmt.Println("build succeeded; stdout = ", stdout)
 	}
+	return nil
 }
 
-func lambdaServicesInLambdasDirectory() []string {
-	var lambdas []string
-	servicesInLambdasDirectory, err := os.ReadDir(*buildLambdasInDirectory)
+func listDirectoriesInDirectory(parentDir string, ignoreChildDir string) ([]string, error) {
+	var directories []string
+	dirEntries, err := os.ReadDir(parentDir)
 	if err != nil {
-		fmt.Println("Error:", err)
-		return nil
+		return nil, fmt.Errorf("reading directory %s: %v", parentDir, err)
 	}
-	if len(servicesInLambdasDirectory) == 0 {
-		fmt.Println("No services found in lambdas directory")
-		return nil
+	if len(dirEntries) == 0 {
+		return nil, nil
 	}
 
-	for _, lambda := range servicesInLambdasDirectory {
-		if lambda.Name() == "common" { // this allows you to have common code between your Lambdas
+	for _, dirEntry := range dirEntries {
+		if dirEntry.Name() == ignoreChildDir {
 			continue
 		}
-		lambdas = append(lambdas, lambda.Name())
+		directories = append(directories, dirEntry.Name())
 	}
-	return lambdas
+	return directories, nil
 }
 
-func runIntegrationTestsFor(lambdas []string) {
+func runIntegrationTestsFor(lambdas []string) error {
 	for _, lambda := range lambdas {
 		log.Printf("running integration tests for %s Lambda...\n", lambda)
-		stdout := runCmdIn(fmt.Sprintf("lambdas/%s", lambda), "make", "int-test")
+		stdout, err := runCmdIn(fmt.Sprintf("lambdas/%s", lambda), "make", "int-test")
+		if err != nil {
+			return fmt.Errorf("running integration tests: %s", err)
+		}
 		fmt.Println("integration tests passed; stdout = ", stdout)
 	}
+	return nil
 }
 
-func runCmdIn(dir string, command string, args ...string) string {
-	cmd := exec.Command(command, args...)
+func runCmdIn(dir string, command string, args ...string) (string, error) {
+	cmd := exec.CommandContext(context.Background(), command, args...)
 	cmd.Dir = dir
 	var stdout strings.Builder
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
-		log.Fatalf("error running %s %s: %s\n\n******************\n\n%s\n******************\n\n", command, args, err, stdout.String())
+		return "", fmt.Errorf("running %s %v: %s\n\n******************\n\n%s\n******************\n\n", command, strings.Join(args, " "), err, stdout.String())
 	}
-	return stdout.String()
+	return stdout.String(), nil
 }
