@@ -1,6 +1,5 @@
 variable environment {}
 variable region {}
-variable account_number {}
 variable contact {
   default = "https://mbharris.co.uk"
 }
